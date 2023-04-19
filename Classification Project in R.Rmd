@@ -1,0 +1,342 @@
+---
+title: 'Project: Classification in R Programming'
+author: "_Hosseinian Pouya.Haniyeh and Tajik.Mahmoud_"
+date: "_3/30/2021_"
+output:
+  pdf_document: default
+  toc: true
+  toc_depth: 2
+  html_document:
+    df_print: paged
+fontsize: 12pt
+---
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(message=FALSE,
+tidy.opts=list(width.cutoff=60))
+```
+
+```{r include=FALSE}
+knitr::opts_chunk$set(comment = NA)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\pagebreak
+# Introduction
+This project should be answered using the Weekly data set, which is part of the ISLR package. 
+it contains 1, 089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010.
+
+Loading required packages for Statistical application:
+```{r , warning = FALSE}
+require(ISLR)
+require(MASS)
+require(class)
+```
+
+# Questions
+## (A) Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
+```{r, warning=FALSE,echo=FALSE}
+knitr::kable(Weekly[1:30,], caption = 'Head of Weekly Data Set')
+```
+
+```{r }
+summary(Weekly)
+```
+
+```{r, echo=FALSE}
+attach(Weekly)
+plot(Volume)
+title(main = "Volume plot")
+```
+
+
+```{r, echo=FALSE}
+plot(Today~Lag1, col="darkred", data=Weekly)
+simplelm = lm(Today~Lag1, data=Weekly)
+abline(simplelm, lwd= 3, col= "darkgreen")
+title(main = "Today~Lag1")
+```
+
+Note : The correlations between the "lag" variables and today's returns are close to zero. 
+The only substantial correlation is between "Year" and "Volume". When we plot "Volume", we see that it is increasing over time.
+
+> **Pair Plot**  
+We get no special information from the ggpairs plot. But that's probably supposed to be the case, or else anyone could get rich with stock prediction!
+
+```{r, echo=FALSE, warning = FALSE}
+library(dplyr)
+library(GGally)
+Weekly %>%
+    select(-Volume, -Year) %>%
+    ggpairs(aes( color = as.factor(Direction), fill = Direction, params=list(corSize=4)),
+            lower = list(continuous = wrap('smooth_loess', alpha = 0.5),
+                         combo = wrap('facetdensity', alpha = 0.5)),
+            diag = list(continuous = wrap('densityDiag',  alpha = 0.5)),
+            upper = list(combo = wrap('dot', alpha = 0.5)))
+```
+
+
+  
+  
+
+> **Correlation Plot**  
+The clustered correlation plot seems to insinuate that the stocks go up and down in a two day pattern since the even days, today (lag0), lag2, lag4, have higher than 0 correlation and the same for the odd. The significance levels of the correlations and their absolute values are low, though.The only variable that appear to have any significant linear relation are Year and Volume.
+This plot does not illustrate that any other variables are linearly related.
+
+```{r, echo=FALSE, warning = FALSE}
+library(ggplot2)
+library(corrplot)
+cor_test <- cor.mtest(Weekly[,1:8], conf.level = .90)
+
+corrplot(cor(Weekly[,1:8]), method = 'color', 
+         order = 'hclust', addrect = 3,
+         p.mat = cor_test$p, sig.level = 0.1, tl.col = 'black')
+```
+
+  
+  
+> **Distribution Plot**  
+Here's our first idea of predictors. On days that a stock went Up its Lag2 variable was a little higher and on the days it went Down the Lag1 was significantly higher. We can also see a small separation in the Lag5 variable based on Direction. Lag3 and Lag4 seem pretty homogeneous.
+  
+```{r, echo=FALSE, warning = FALSE}
+library(ggplot2)
+library(ggthemes)
+library(tidyr)
+Weekly %>%
+    gather(value_type, value, starts_with('Lag')) %>%
+    ggplot(aes(value_type, value, fill = Direction)) +
+    geom_boxplot(notch = TRUE) + 
+    labs(x = '', y = '') +
+    ylim(c(-6, 6)) + 
+    geom_hline(yintercept = 0, linetype = 2) + 
+    theme(legend.position="bottom")
+  
+```
+
+  
+  
+## (B) Use the full data set to perform a logistic regression with Direction as the response and the five lag variables plus Volume as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+
+```{r, warning = FALSE}
+glm.model = glm(Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume,family = "binomial", data=Weekly)
+summary(glm.model)
+```
+Note: Out of the 6 predictors, only Lag2 as its p-value is less than 0.05.(That is, the values from 2 weeks before the current value)
+it seems to be statistically significant to predict the Direction. The estimate coefficient is of 0.058, which would mean that an increase of 1 in Lag2 represents an increase of e^0.058 = 1,06 in the odds of direction going up.
+
+## (C) Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+
+```{r, warning = FALSE, echo=TRUE}
+probs = predict(glm.model, type="response")
+preds = rep("Down", 1089)
+preds[probs > 0.5] = "Up"
+knitr::kable(table(preds, Weekly$Direction), booktabs = T, caption = "Predicted VS Factual Value")
+```
+Based on the results of the confusion matrix, we can see that the percentage of correct predictions on the training data is (54+557)/(54+48+430+557) which is equal to 56.1065197%. In other words 43.8934803% is the training error rate, which is often overly optimistic.
+We could also say that for weeks when the market goes up, the model is right 92.066% of the time (557/(48+557)).
+For weeks when the market goes down, the model is right only 11.157% of the time (54/(54+430)).which is an awfully low proportion.
+
+```{r, warning = FALSE, echo=TRUE}
+hist(probs, breaks= 100, col= "darkred")
+abline(v = mean(probs), lwd = 2)
+
+plot(probs, col= ifelse(Weekly$Direction=="Down", "red","green"), pch=16)
+abline(h = 0.5, lwd= 3) 
+```
+  
+Note: In this plot we can see as most of our probabilities of being "Up" are over 0.5. So, if we set the threshold to consider one sample as going Up as 0.5, we are going to consider almost all of them as up.
+
+## (D) Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+```{r, warning=FALSE,echo=FALSE}
+training.data = Weekly[Weekly$Year<2009,]
+test.data = Weekly[Weekly$Year>2008,]
+glm.model.2 = glm(Direction~Lag2, data= training.data, family = "binomial")
+summary(glm.model.2)
+
+testprobs = predict(glm.model.2, type="response", newdata = test.data)
+testdirs = Weekly$Direction[Weekly$Year>2008]
+plot(testprobs, col= ifelse(Weekly$Direction[Weekly$Year>2008]=="Down", "red","green"), pch=16)
+abline(h = 0.5, lwd= 3)
+
+testpreds = rep("Down", 104)
+testpreds[testprobs>0.5] = "Up"
+mean(probs)
+library(caret)
+glm.model.cm <- confusionMatrix(as.factor(testpreds), testdirs)
+knitr::kable(table(testpreds, testdirs), booktabs = T, caption = "Predicted VS Factual Value")
+```
+When splitting up the whole Weekly data set into a training and test data set, the model correctly predicted weekly trends (9+56)/104 which is equal to 62.5%. In other words 37.5% is the test error rate which is a moderate improvement from the model that utilized the whole data set. 
+We could also say that this model such as the previous one did better at predicting upward trends. In other words, for weeks when the market goes up, the model is right 91.80% of the time (56/(56+5)). 
+For weeks when the market goes down, the model is right only 20.93% of the time (9/(9+34)).
+
+## (E) Repeat (D) using LDA.
+```{r, warning=FALSE,echo=FALSE}
+lda.model = lda(Direction~Lag2, data= training.data)
+lda.model
+
+plot(lda.model)#Now that we have fit our LDA, we can try and see how well it works with the test data:
+
+lda.pred = predict(lda.model, newdata=test.data, type="response")
+lda.class = lda.pred$class
+lda.cm <- confusionMatrix(lda.class, test.data$Direction)
+knitr::kable(table(lda.class, test.data$Direction), booktabs = T, caption = "Predicted VS Factual Value")
+```
+Using Linear Discriminant Analysis to develop a classifying model yielded similar results as the logistic regression model which is not surprising.
+
+## (F) Repeat (D) using Random Forrest.
+```{r, warning=FALSE,echo=FALSE}
+set.seed(1234)
+rf.model <- randomForest::randomForest(Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume, 
+                                       data = training.data, ntree = 500)
+
+
+test.data$pred_rf <- predict(rf.model, test.data)
+head(test.data)
+mean(test.data$pred_rf == test.data$Direction) * 100 
+
+
+rf.cm <- confusionMatrix(test.data$pred_rf, test.data$Direction)
+confm_rf <- table(actual = test.data$Direction, prediction = test.data$pred_rf)
+knitr::kable(confm_rf, booktabs = T, caption = "Predicted VS Factual Value")
+```
+In Random Forrest, we may conclude that the percentage of correct predictions on the test data is (26 + 27) / 104 which is equal to 50.96%. In other words 49.04% is the test error rate, worse than previous models.
+For weeks when the market goes up, the model is right 61.90% of the time (26 / (26 + 16)). 
+For weeks when the market goes down, the model is right only 43.54% of the time (27 / (27 + 35)).
+
+## (G) Repeat (D) using Naive Bayes Classifier.
+```{r, warning=FALSE,echo=FALSE}
+nBayes.model <- e1071::naiveBayes(Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume, 
+                              data = training.data)
+
+nBayes.model
+
+test.data$pred_nb <- predict(nBayes.model, test.data)
+head(test.data)
+mean(test.data$pred_nb == test.data$Direction) * 100
+
+nb.cm <- confusionMatrix(test.data$pred_nb, test.data$Direction)
+
+confm_nb <- table(actual = test.data$Direction, prediction = test.data$pred_nb)
+
+knitr::kable(confm_nb, booktabs = T, caption = "Predicted VS Factual Value")
+```
+In Naive Bayes Classifier, we may conclude that the percentage of correct predictions on the test data is (5 + 42) / 104 which is equal to 45.19%. In other words 54.80% is the test error rate.
+We could also say that for weeks when the market goes up, the model is right 83.33% of the time (5 / (5 + 1)). 
+For weeks when the market goes down, the model is right only 42.85% of the time (42 / (42 + 56)).
+
+## (H) Repeat (D) using SVM.
+```{r, warning=FALSE,echo=FALSE}
+set.seed(1234)
+tune_out <- e1071::tune("svm", Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume, 
+                        data= training.data, kernel = "polynomial",
+                        ranges = list(degree = c(2, 3, 4, 5, 10)))
+
+summary(tune_out)
+svm.model <- tune_out$best.model
+svm.model
+
+test.data$pred_svm <- predict(svm.model, test.data)
+head(test.data)
+mean(test.data$pred_svm == test.data$Direction) * 100
+
+svm.cm <- confusionMatrix(test.data$pred_svm, test.data$Direction)
+
+confm_svm <- table(actual = test.data$Direction, prediction = test.data$pred_svm)
+
+knitr::kable(confm_svm, booktabs = T , caption = "Predicted VS Factual Value")
+```
+This method shows that the percentage of correct predictions on the test data is (26 + 25) / 104 which is equal to 49.03%. In other words 48.03% is the test error rate. SVM model does not do very well. There's almost a 50/50 chance that the nearest point is of either class. 
+We could also say that for weeks when the market goes up, the model is right 59.09% of the time (26 / (18+26)). 
+For weeks when the market goes down, the model is right only 41.66% of the time (25 / (25+35)).
+
+## (I) Repeat (D) using ANN.
+```{r, warning=FALSE,echo=FALSE}
+library("neuralnet")
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+Weekly$Direction <- ifelse(Weekly$Direction== "Up", 1, 0)
+maxmindf <- as.data.frame(lapply(Weekly[ ,-1], normalize))
+maxmindf$Year<- Weekly$Year
+training.data = maxmindf[maxmindf$Year<2009,]
+test.data = maxmindf[maxmindf$Year>2008,]
+
+library(neuralnet)
+model_nn <- neuralnet(Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume,data = training.data)
+model_nn$result.matrix
+plot(model_nn)
+
+#Prediction using neural network
+neuralnetwork <- compute(model_nn, test.data)
+neuralnetwork$net.result <- ifelse(neuralnetwork$net.result > 0.5, 1, 0)
+
+ANN.cm <- confusionMatrix(as.factor(neuralnetwork$net.result), as.factor(test.data$Direction))
+confm_nn <- table(actual = test.data$Direction, prediction = neuralnetwork$net.result)
+
+knitr::kable(confm_nn, booktabs = T, caption = "Predicted VS Factual Value")
+```
+In Artificial Neural networks the percentage of correct predictions on the test data is (21 + 28) / 104 which is equal to 47.11%. In other words 52.88% is the test error rate.
+We could also say that for weeks when the market goes up, the model is right 58.33% of the time (21 / (21 + 15)). 
+For weeks when the market goes down, the model is right 41.17% of the time (28 / (28 + 40))).
+
+\pagebreak
+# The Results
+## Which of these methods appears to provide the best results on this data?
+  
+  
+The Accuracy of each model is shown below to know which one is the best:
+  
+  
+```{r, warning=FALSE,echo=FALSE, fig.height=10, fig.width=10}
+model_compare <- data.frame(Model = c('Logistic Regression', 'Linear Discriminant Analysis', 'Random Forest',
+                                      ' Naive Bayes', 'SVM', 'ANN'),
+                            Accuracy = c(glm.model.cm$overall[1],
+                                         lda.cm$overall[1],
+                                         rf.cm$overall[1],
+                                        nb.cm$overall[1],
+                                         svm.cm$overall[1],
+                                         ANN.cm$overall[1]))
+ggplot(aes(x=Model, y=Accuracy, fill = Model), data=model_compare) +
+  geom_bar(stat='identity', width=0.5) +
+  coord_flip() +   
+  geom_text(aes(label=round(Accuracy,3)), colour="black", size=4.5)+
+  ggtitle('Comparative Accuracy of Models on Cross-Validation Data') +
+  xlab('Models') +
+  ylab('Overall Accuracy')
+```
+```{r, warning = FALSE, echo=FALSE}
+conclusionOfcomparison <- data.frame('Accuracy' = 62.5 , 
+                         'Precision'= 62.22,
+                         'Sensitivity' = 91.80,
+                         'Specificity' = 20.93)
+rownames(conclusionOfcomparison) = 'glm'
+conclusionOfcomparison <- rbind(conclusionOfcomparison,'LDA' = c(62.5,62.22,91.80,20.93))
+conclusionOfcomparison <- rbind(conclusionOfcomparison,'rf' = c(50.96,42.62,61.90,43.54))
+conclusionOfcomparison <- rbind(conclusionOfcomparison,'nb' = c(45.19,8.19,83.33,42.85))
+conclusionOfcomparison <- rbind(conclusionOfcomparison,'svm' = c(49.03,42.62,59.09,41.66))
+conclusionOfcomparison <- rbind(conclusionOfcomparison,'nn' = c(47.11,34.42,58.33,41.17))
+
+```
+  
+  
+Other ways such as calculating F-score or the sum of the weighted performance rating for each alternative(SAW method) can be used to credit the final result: 
+```{r, warning = FALSE}
+F_Score <- round(2 * (conclusionOfcomparison[,1] * conclusionOfcomparison[,3])/ ((conclusionOfcomparison[,1] + conclusionOfcomparison[,3])),2)
+
+SAW <- round(0.4*conclusionOfcomparison[,1] + 0.4*conclusionOfcomparison[,2]+
+  0.1*conclusionOfcomparison[,3]+0.1*conclusionOfcomparison[,4], 2)
+```
+
+
+```{r, warning = FALSE, echo=FALSE}
+
+conclusionOfcomparison <- cbind(conclusionOfcomparison, SAW, F_Score)
+knitr::kable(conclusionOfcomparison, booktabs = T, caption = "Comarison of Models") 
+```
+  
+  
+> **Conclusion**  
+Based on both Accuracy and Scoring models we can conclude that Logistic Regression and Linear discriminant Analysis are best models. However, Artificial Neural Network did not well in the prediction. Finally, using some matrics like Cohen's Kappa, Matthews Correlation Coefficient and also setting up an experiment to apply selected learners to a set of data sets, using repeated runs of k-fold cross-validation (10 x 10-fold gives pretty stable estimates) to validate results would be highly recommended. The Experimenter allows you to compare the learners for significant differences in performance using t-tests specifically.
